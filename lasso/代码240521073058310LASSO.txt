@@ -1,0 +1,146 @@
+import time
+from sapbase import *
+
+progress(0, 100)
+
+print_msg("(1/3) 准备数据...")
+
+import pandas as pd
+from AutoModel import *
+
+file_path = "TCGA-OS.csv"
+file_other_path = "西京医院.csv"
+is_perdict = True
+tol = 0
+
+def load_data(pth: str):
+    if pth.lower().endswith("csv"):
+        return pd.read_csv(pth, header=0)
+    else:
+        return pd.read_excel(pth, header=0)
+
+dta = load_data(file_path)
+
+progress(20, 100)
+
+if is_perdict:
+    otherdta = load_data(file_other_path)
+
+if 0.7 >= 1 or 0.7 <= 0:
+    raise "数据集划分比例有误"
+if 0.7 + 0.2 >= 1 or 0.7 + 0.2 <= 0:
+    raise "数据集划分比例有误"
+
+progress(40, 100)
+
+tc = dta.shape[0]
+ml_c1 = int(0.7 * tc)
+ml_c2 = tc - ml_c1
+dl_c1 = int(0.7 * tc)
+dl_c2 = int(0.2 * tc)
+dl_c3 = tc - dl_c1 - dl_c2
+
+if ml_c1 <= 0 or ml_c2 <= 0:
+    raise "数据集划分比例有误"
+if dl_c1 <= 0 or dl_c2 <= 0 or dl_c3 <= 0:
+    raise "数据集划分比例有误"
+
+progress(60, 100)
+
+print(f"总样本数：{tc}")
+print(f"机器学习：{ml_c1} / {ml_c2}")
+print(f"深度学习：{dl_c1} / {dl_c2} / {dl_c3}")
+
+dp = DataProvider(
+    data=dta,
+    randomSeeds=123456,
+    spilt_ml=(ml_c1, ml_c2),
+    spilt_dl=(dl_c1, dl_c2, dl_c3),
+    is_stardandize=True,
+    is_shuffle=True,
+    crossvaild_count=10,
+    col_name_index="TAG",
+    col_name_time="OS.time",
+    col_name_event="OS",
+    col_name_ignore=[],
+)
+
+progress(100, 100)
+
+clear_msg()
+print_msg("(1/3) 准备数据 [完成]")
+print_msg("(2/3) 训练模型...")
+progress(0, 100)
+time.sleep(.5)
+
+model = AutoModel.New(ModelType.LASSO, tolerance=tol)
+model.__sap__ = True
+best_cindex, best_brier, _ = model.Train(
+    dp, hypersearch_times=1, standard = 1
+)
+# model.Save("result.am")
+
+# if ModelType.GetType(ModelType.LASSO) == "ML":
+#     print_msg("模型最终系数：")
+#     print_msg(model._model.coef_)
+# else:
+#     print_msg("深度学习模型无法查看系数")
+
+# print_file("result.am", "点此下载最终模型（模型较大，谨慎下载，需要耗费隧道流量）")
+
+clear_msg()
+print_msg("(1/3) 准备数据 [完成]")
+print_msg("(2/3) 训练模型 [完成]")
+print_msg("(3/3) 计算风险...")
+progress(0, 100)
+time.sleep(.5)
+
+# # Train, Vaild, Test
+# idx_train = model._dp._dl_idx[0][0]
+# idx_valid = model._dp._dl_idx[0][1]
+# idx_test = model._dp._dl_idx[0][2]
+# idxx = idx_train + idx_valid
+# train_data = dp.Index.iloc[idxx,]
+# train_test = dp.Index.iloc[idx_test,]
+
+is_jump = False
+if is_perdict:
+    print_msg("计算其他数据集风险中...")
+    if len(dta.columns.values) != len(otherdta.columns.values):
+        is_jump = True
+progress(20, 100)
+
+ci_train, br_train, risk_train = model._best_train_cindex, model._best_train_brier, model._best_train_prediction
+progress(30, 100)
+ci_test, br_test, risk_test = model._best_test_cindex, model._best_test_brier, model._best_test_prediction
+progress(40, 100)
+
+if is_perdict:
+    ci_other, br_other, risk_other = model.Predict(otherdta)
+progress(50, 100)
+
+# risk_train.columns = model.Index
+risk_train.to_csv('risk.trva.csv')  # Train-Vaild
+# risk_test.columns = train_test.index.values
+risk_test.to_csv('risk.test.csv')  #  Test
+
+if is_perdict:
+    risk_other.columns = otherdta.index.values
+    risk_other.to_csv('risk.other.csv')  # Train-Vaild
+
+clear_msg()
+progress(100, 100)
+
+print_msg('<b>考虑到流量与带宽问题，不再提供模型下载，请自行牢记模型训练参数以便复现</b>')
+print_msg('')
+print_msg(f'训练(验证)集\tC-Index: {ci_train}, Brier: {br_train}')
+print_msg(f'测试集\t\tC-Index: {ci_test}, Brier: {br_test}')
+if is_perdict:
+    print_msg(f'其他数据集\tC-Index: {ci_other}, Brier {br_other}')
+
+print_msg('')
+print_file("risk.trva.csv", "点此下载训练(验证)集预测结果")
+print_file("risk.test.csv", "点此下载测试集预测结果")
+if is_perdict:
+    print_file("risk.other.csv", "点此下载测试集预测结果")
+time.sleep(.2)
